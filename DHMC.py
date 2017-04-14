@@ -14,7 +14,7 @@ class DHMCSampler(object):
         self.f = f
         self.f_update = f_update
 
-    def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, grad, n_disc=0, M=None):
+    def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, n_disc=0, M=None):
         # Params
         # ------
         # f: function(theta, req_grad)
@@ -39,10 +39,13 @@ class DHMCSampler(object):
         if n_disc == 0:
             theta = theta + dt * p / M
         else:
-            theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
+            # Update continuous parameters if any.
+            aux = None
+            if self.n_param != self.n_disc:
+                theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
+                logp, _, aux = f(theta, req_grad=False)
 
             # Update discrete parameters.
-            logp, _, aux = f(theta, req_grad=False)
             if math.isinf(logp):
                 return theta, p, grad, logp, nfevals
             coord_order = len(theta) - n_disc + np.random.permutation(n_disc)
@@ -51,9 +54,10 @@ class DHMCSampler(object):
 
             theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
 
-        logp, grad, _ = f(theta)
-        nfevals += 1
-        p[:-n_disc] = p[:-n_disc] + 0.5 * dt * grad[:-n_disc]
+        if self.n_param != self.n_disc:
+            logp, grad, _ = f(theta)
+            nfevals += 1
+            p[:-n_disc] = p[:-n_disc] + 0.5 * dt * grad[:-n_disc]
 
         return theta, p, grad, logp, nfevals
 
@@ -78,12 +82,12 @@ class DHMCSampler(object):
         joint0 = - self.compute_hamiltonian(logp0, p)
 
         nfevals_total = 0
-        theta, p, grad, logp, nfevals = self.integrator(epsilon, theta0, p, grad0)
+        theta, p, grad, logp, nfevals = self.integrator(epsilon, theta0, p, logp0, grad0)
         nfevals_total += nfevals
         for i in range(1, n_step):
             if math.isinf(logp):
                 break
-            theta, p, grad, logp, nfevals = self.integrator(epsilon, theta, p, grad)
+            theta, p, grad, logp, nfevals = self.integrator(epsilon, theta, p, logp, grad)
             nfevals_total += nfevals
 
         joint = - self.compute_hamiltonian(logp, p)
@@ -97,8 +101,8 @@ class DHMCSampler(object):
         return theta, logp, grad, acceptprob, nfevals_total
 
     # Integrator and kinetic energy functions for the proposal scheme.
-    def integrator(self, dt, theta0, p0, grad):
-        return self.pwc_laplace_leapfrog(self.f, self.f_update, dt, theta0, p0, grad, self.n_disc, self.M)
+    def integrator(self, dt, theta0, p0, logp, grad):
+        return self.pwc_laplace_leapfrog(self.f, self.f_update, dt, theta0, p0, logp, grad, self.n_disc, self.M)
 
     def random_momentum(self):
         p_cont = np.sqrt(self.M[:-self.n_disc]) * np.random.normal(size = self.n_param - self.n_disc)
