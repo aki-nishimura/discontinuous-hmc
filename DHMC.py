@@ -2,6 +2,56 @@ import numpy as np
 import math
 import time
 
+
+# Utility function to check that the computed gradient value is correct.
+def test_grad(f, x_center, x_sd=None, rel_tol=.01, dx=10 ** -6, n_test=10, msg=True):
+    # Compare the computed gradient to a finite difference approximation
+    # at 'n_test' randomly generated points.
+    # Params:
+    # f : function that returns a real-value and gradient.
+    # x_center : vector specifying the center of randomly generated points.
+    # x_var : vector specifying the variance of randomly generated points.
+
+    x_center = np.array(x_center, ndmin=1)
+    if x_sd is None:
+        x_sd = np.ones(len(x_center))
+    x_sd = np.array(x_sd, ndmin=1)
+
+    abs_tol = dx
+    x_test = \
+        [x_center + x_sd * np.random.normal(size=len(x_center))
+            for n in range(n_test)]
+
+    for x in x_test:
+        grad_est = np.zeros(len(x_center))
+        for i in range(len(x_center)):
+            x_minus = x.copy()
+            x_minus[i] -= dx
+            x_plus = x.copy()
+            x_plus[i] += dx
+
+            f_minus, _ = f(x_minus)
+            f_plus, _ = f(x_plus)
+            grad_est[i] = (f_plus - f_minus) / (2 * dx)
+
+        _, grad = f(x)
+
+        test_pass = np.allclose(grad, grad_est, rtol=rel_tol,
+                                atol=abs_tol)
+        if not test_pass:
+            if msg:
+                print(
+                    'Test failed: the computed gradient does not match with the centered \n' \
+                    + 'difference approximation to the tolerance level.')
+            break
+
+    if test_pass and msg:
+        print('Test passed! The computed gradient seems to be correct.')
+
+    return test_pass, x, grad, grad_est
+
+
+
 class DHMCSampler(object):
 
     def __init__(self, f, f_update, n_disc, n_param, scale=None):
@@ -13,6 +63,65 @@ class DHMCSampler(object):
         self.n_disc = n_disc
         self.f = f
         self.f_update = f_update
+
+    # Utility function to check that the returned values of f and f_updates are
+    # all consistent.
+
+    def test_cont_grad(self, theta0, sd, rtol=.01, dx=10**-6, n_test=10):
+        # Wrapper function for test_grad. Checks that the gradient with respect
+        # to the continuous parameters.
+
+        for i in range(n_test):
+            theta = theta0.copy()
+            theta[-self.n_disc:] += sd * np.random.randn(self.n_disc)
+            def f_test(theta_cont):
+                logp, grad, aux = self.f(np.concatenate((theta_cont, theta0[-self.n_disc:])))
+                grad = grad[:-self.n_disc]
+                return logp, grad
+
+            test_pass, theta_cont, grad, grad_est = \
+                test_grad(f_test, theta0[:-self.n_disc], sd, rtol, dx, n_test=1, msg=False)
+
+            if not test_pass:
+                print('Test failed: the computed gradient does not match with the centered \n' \
+                        + 'difference approximation to the tolerance level.')
+                break
+
+        if test_pass:
+            print('Test passed! The computed gradient seems to be correct.')
+
+        return test_pass, theta_cont, grad, grad_est
+
+    def test_update(self, theta0, sd, n_test=10, atol=10 ** -3, rtol=10 ** -3):
+
+        test_pass = True
+        for i in range(n_test):
+            index = np.random.randint(self.n_param - self.n_disc, self.n_param)
+            theta = theta0 + .1 * sd * np.random.randn(len(theta0))
+            dtheta = sd * np.random.randn(1)
+            theta_new = theta.copy()
+            theta_new[index] += dtheta
+            logp_prev, _, aux = self.f(theta)
+            logp_curr, _, _ = self.f(theta_new)
+            logp_diff = self.f_update(theta, dtheta, index, aux)
+            both_inf = math.isinf(logp_diff) and \
+                       math.isinf(logp_curr - logp_prev)
+            if not both_inf:
+                abs_err = abs(logp_diff - (logp_curr - logp_prev))
+                if logp_curr == logp_prev:
+                    rel_err = 0
+                else:
+                    rel_err = abs_err / abs(logp_curr - logp_prev)
+                if abs_err > atol or rel_err > rtol:
+                    test_pass = False
+                    break
+
+        if test_pass:
+            print('Test passed! The logp differences agree.')
+        else:
+            print('Test failed: the logp differences do not agree.')
+
+        return test_pass, theta, logp_curr - logp_prev, logp_diff
 
     def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, n_disc=0, M=None):
         # Params
