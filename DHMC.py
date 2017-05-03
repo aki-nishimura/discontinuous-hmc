@@ -103,7 +103,7 @@ class DHMCSampler(object):
             theta_new[index] += dtheta
             logp_prev, _, aux = self.f(theta)
             logp_curr, _, _ = self.f(theta_new)
-            logp_diff = self.f_update(theta, dtheta, index, aux)
+            logp_diff, _ = self.f_update(theta, dtheta, index, aux)
             both_inf = math.isinf(logp_diff) and \
                        math.isinf(logp_curr - logp_prev)
             if not both_inf:
@@ -123,7 +123,7 @@ class DHMCSampler(object):
 
         return test_pass, theta, logp_curr - logp_prev, logp_diff
 
-    def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, n_disc=0, M=None):
+    def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, aux, n_disc=0, M=None):
         # Params
         # ------
         # f: function(theta, req_grad)
@@ -149,7 +149,6 @@ class DHMCSampler(object):
             theta = theta + dt * p / M
         else:
             # Update continuous parameters if any.
-            aux = None
             if self.n_param != self.n_disc:
                 theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
                 logp, _, aux = f(theta, req_grad=False)
@@ -159,44 +158,44 @@ class DHMCSampler(object):
                 return theta, p, grad, logp, nfevals
             coord_order = len(theta) - n_disc + np.random.permutation(n_disc)
             for index in coord_order:
-                theta, p, logp = self.update_coordwise(f_update, aux, index, theta, p, M, dt, logp)
+                theta, p, logp, aux = self.update_coordwise(f_update, aux, index, theta, p, M, dt, logp)
 
             theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
 
         if self.n_param != self.n_disc:
-            logp, grad, _ = f(theta)
+            logp, grad, aux = f(theta)
             nfevals += 1
             p[:-n_disc] = p[:-n_disc] + 0.5 * dt * grad[:-n_disc]
 
-        return theta, p, grad, logp, nfevals
-
+        return theta, p, grad, logp, aux, nfevals
 
     def update_coordwise(self, f_update, aux, index, theta, p, M, dt, logp):
         p_sign = math.copysign(1.0, p[index])
         dtheta = p_sign / M[index] * dt
-        logp_diff = f_update(theta, dtheta, index, aux)
+        logp_diff, aux_new = f_update(theta, dtheta, index, aux)
         dU = - logp_diff
         if abs(p[index]) / M[index] > dU:
             p[index] += - p_sign * M[index] * dU
             theta[index] += dtheta
             logp += logp_diff
+            aux = aux_new
         else:
             p[index] = - p[index]
-        return theta, p, logp
+        return theta, p, logp, aux
 
     ## Proposal scheme: basically identical to the standard HMC except for the integrator and kinetic energy
-    def HMC(self, epsilon, n_step, theta0, logp0, grad0):
+    def HMC(self, epsilon, n_step, theta0, logp0, grad0, aux0):
 
         p = self.random_momentum()
         joint0 = - self.compute_hamiltonian(logp0, p)
 
         nfevals_total = 0
-        theta, p, grad, logp, nfevals = self.integrator(epsilon, theta0, p, logp0, grad0)
+        theta, p, grad, logp, aux, nfevals = self.integrator(epsilon, theta0, p, logp0, grad0, aux0)
         nfevals_total += nfevals
         for i in range(1, n_step):
             if math.isinf(logp):
                 break
-            theta, p, grad, logp, nfevals = self.integrator(epsilon, theta, p, logp, grad)
+            theta, p, grad, logp, aux, nfevals = self.integrator(epsilon, theta, p, logp, grad, aux)
             nfevals_total += nfevals
 
         joint = - self.compute_hamiltonian(logp, p)
@@ -207,11 +206,11 @@ class DHMCSampler(object):
             logp = logp0
             grad = grad0
 
-        return theta, logp, grad, acceptprob, nfevals_total
+        return theta, logp, grad, aux, acceptprob, nfevals_total
 
     # Integrator and kinetic energy functions for the proposal scheme.
-    def integrator(self, dt, theta0, p0, logp, grad):
-        return self.pwc_laplace_leapfrog(self.f, self.f_update, dt, theta0, p0, logp, grad, self.n_disc, self.M)
+    def integrator(self, dt, theta0, p0, logp, grad, aux):
+        return self.pwc_laplace_leapfrog(self.f, self.f_update, dt, theta0, p0, logp, grad, aux, self.n_disc, self.M)
 
     def random_momentum(self):
         p_cont = np.sqrt(self.M[:-self.n_disc]) * np.random.normal(size = self.n_param - self.n_disc)
@@ -236,11 +235,11 @@ class DHMCSampler(object):
         accept_prob = np.zeros(n_sample + n_burnin)
 
         tic = time.process_time()  # Start clock
-        logp, grad, _ = self.f(theta)
+        logp, grad, aux = self.f(theta)
         for i in range(n_sample + n_burnin):
             dt = np.random.uniform(dt_range[0], dt_range[1])
             nstep = np.random.randint(nstep_range[0], nstep_range[1] + 1)
-            theta, logp, grad, accept_prob[i], nfevals = self.HMC(dt, nstep, theta, logp, grad)
+            theta, logp, grad, aux, accept_prob[i], nfevals = self.HMC(dt, nstep, theta, logp, grad, aux)
             nfevals_total += nfevals
             samples[i, :] = theta
             logp_samples[i] = logp
