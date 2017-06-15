@@ -1,56 +1,9 @@
 import numpy as np
 import math
 import time
-
+import warnings
 
 # Utility function to check that the computed gradient value is correct.
-def test_grad(f, x_center, x_sd=None, rel_tol=.01, dx=10 ** -6, n_test=10, msg=True):
-    # Compare the computed gradient to a finite difference approximation
-    # at 'n_test' randomly generated points.
-    # Params:
-    # f : function that returns a real-value and gradient.
-    # x_center : vector specifying the center of randomly generated points.
-    # x_var : vector specifying the variance of randomly generated points.
-
-    x_center = np.array(x_center, ndmin=1)
-    if x_sd is None:
-        x_sd = np.ones(len(x_center))
-    x_sd = np.array(x_sd, ndmin=1)
-
-    abs_tol = dx
-    x_test = \
-        [x_center + x_sd * np.random.normal(size=len(x_center))
-            for n in range(n_test)]
-
-    for x in x_test:
-        grad_est = np.zeros(len(x_center))
-        for i in range(len(x_center)):
-            x_minus = x.copy()
-            x_minus[i] -= dx
-            x_plus = x.copy()
-            x_plus[i] += dx
-
-            f_minus, _ = f(x_minus)
-            f_plus, _ = f(x_plus)
-            grad_est[i] = (f_plus - f_minus) / (2 * dx)
-
-        _, grad = f(x)
-
-        test_pass = np.allclose(grad, grad_est, rtol=rel_tol,
-                                atol=abs_tol)
-        if not test_pass:
-            if msg:
-                print(
-                    'Test failed: the computed gradient does not match with the centered \n' \
-                    + 'difference approximation to the tolerance level.')
-            break
-
-    if test_pass and msg:
-        print('Test passed! The computed gradient seems to be correct.')
-
-    return test_pass, x, grad, grad_est
-
-
 
 class DHMCSampler(object):
 
@@ -67,9 +20,13 @@ class DHMCSampler(object):
     # Utility function to check that the returned values of f and f_updates are
     # all consistent.
 
-    def test_cont_grad(self, theta0, sd, rtol=.01, dx=10**-6, n_test=10):
-        # Wrapper function for test_grad. Checks that the gradient with respect
-        # to the continuous parameters.
+    def test_cont_grad(self, theta0, sd=1, atol=None, rtol=.01, dx=10**-6, n_test=10):
+        #  Wrapper function for test_grad to check the returned gradient values (with respect to
+        #  the continuous parameters). The gradients are evaluated at n_test randomly generated
+        #  points around theta0.
+
+        if atol is None:
+            atol = dx
 
         for i in range(n_test):
             theta = theta0.copy()
@@ -80,11 +37,14 @@ class DHMCSampler(object):
                 return logp, grad
 
             test_pass, theta_cont, grad, grad_est = \
-                test_grad(f_test, theta0[:-self.n_disc], sd, rtol, dx, n_test=1, msg=False)
+                self.test_grad(f_test, theta[:-self.n_disc], atol, rtol, dx)
 
             if not test_pass:
-                print('Test failed: the computed gradient does not match with the centered \n' \
-                        + 'difference approximation to the tolerance level.')
+                warnings.warn(
+                    'Test failed: the returned gradient value does not agree with ' +
+                    'the centered difference approximation within the tolerance level.',
+                    RuntimeWarning
+                )
                 break
 
         if test_pass:
@@ -92,7 +52,29 @@ class DHMCSampler(object):
 
         return test_pass, theta_cont, grad, grad_est
 
+    def test_grad(self, f, x, atol, rtol, dx):
+        # Compare the computed gradient to a centered finite difference approximation.
+
+        x = np.array(x, ndmin=1)
+        grad_est = np.zeros(len(x))
+        for i in range(len(x)):
+            x_minus = x.copy()
+            x_minus[i] -= dx
+            x_plus = x.copy()
+            x_plus[i] += dx
+
+            f_minus, _ = f(x_minus)
+            f_plus, _ = f(x_plus)
+            grad_est[i] = (f_plus - f_minus) / (2 * dx)
+
+        _, grad = f(x)
+        test_pass = np.allclose(grad, grad_est, atol=atol, rtol=rtol)
+
+        return test_pass, x, grad, grad_est
+
     def test_update(self, theta0, sd, n_test=10, atol=10 ** -3, rtol=10 ** -3):
+        #  Check that the outputs of 'f' and 'f_update' functions are consistent by comparing the
+        #  values logp differences computed by the both functions.
 
         test_pass = True
         for i in range(n_test):
@@ -119,8 +101,11 @@ class DHMCSampler(object):
         if test_pass:
             print('Test passed! The logp differences agree.')
         else:
-            print('Test failed: the logp differences do not agree.')
-
+            warnings.warn(
+                'Test failed: the outputs of f and f_update are not consistent.' +
+                'the logp differences do not agree.',
+                RuntimeWarning
+            )
         return test_pass, theta, logp_curr - logp_prev, logp_diff
 
     def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, aux, n_disc=0, M=None):
