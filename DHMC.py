@@ -3,15 +3,13 @@ import math
 import time
 import warnings
 
-# Utility function to check that the computed gradient value is correct.
-
 class DHMCSampler(object):
 
     def __init__(self, f, f_update, n_disc, n_param, scale=None):
         if scale is None:
             scale = np.ones(n_param)
-        self.M = 1 / np.concatenate((scale[:-n_disc] ** 2, scale[-n_disc:]))  # Set the scale of p to be inversely
-        # proportional to the scale of theta. 1 / [var(p[0]), std(p[1])]
+        # Set the scale of p to be inversely proportional to the scale of theta.
+        self.M = 1 / np.concatenate((scale[:-n_disc] ** 2, scale[-n_disc:]))
         self.n_param = n_param
         self.n_disc = n_disc
         self.f = f
@@ -21,9 +19,11 @@ class DHMCSampler(object):
     # all consistent.
 
     def test_cont_grad(self, theta0, sd=1, atol=None, rtol=.01, dx=10**-6, n_test=10):
-        #  Wrapper function for test_grad to check the returned gradient values (with respect to
-        #  the continuous parameters). The gradients are evaluated at n_test randomly generated
-        #  points around theta0.
+        """
+        Wrapper function for test_grad to check the returned gradient values
+        (with respect to the continuous parameters). The gradients are
+        evaluated at n_test randomly generated points around theta0.
+        """
 
         if atol is None:
             atol = dx
@@ -32,12 +32,13 @@ class DHMCSampler(object):
             theta = theta0.copy()
             theta[-self.n_disc:] += sd * np.random.randn(self.n_disc)
             def f_test(theta_cont):
-                logp, grad, aux = self.f(np.concatenate((theta_cont, theta0[-self.n_disc:])))
+                logp, grad, aux \
+                    = self.f(np.concatenate((theta_cont, theta0[-self.n_disc:])))
                 grad = grad[:-self.n_disc]
                 return logp, grad
 
-            test_pass, theta_cont, grad, grad_est = \
-                self.test_grad(f_test, theta[:-self.n_disc], atol, rtol, dx)
+            test_pass, theta_cont, grad, grad_est \
+                = self.test_grad(f_test, theta[:-self.n_disc], atol, rtol, dx)
 
             if not test_pass:
                 warnings.warn(
@@ -53,8 +54,7 @@ class DHMCSampler(object):
         return test_pass, theta_cont, grad, grad_est
 
     def test_grad(self, f, x, atol, rtol, dx):
-        # Compare the computed gradient to a centered finite difference approximation.
-
+        """Compare the computed gradient to a centered finite difference approximation. """
         x = np.array(x, ndmin=1)
         grad_est = np.zeros(len(x))
         for i in range(len(x)):
@@ -62,7 +62,6 @@ class DHMCSampler(object):
             x_minus[i] -= dx
             x_plus = x.copy()
             x_plus[i] += dx
-
             f_minus, _ = f(x_minus)
             f_plus, _ = f(x_plus)
             grad_est[i] = (f_plus - f_minus) / (2 * dx)
@@ -73,8 +72,10 @@ class DHMCSampler(object):
         return test_pass, x, grad, grad_est
 
     def test_update(self, theta0, sd, n_test=10, atol=10 ** -3, rtol=10 ** -3):
-        #  Check that the outputs of 'f' and 'f_update' functions are consistent by comparing the
-        #  values logp differences computed by the both functions.
+        """
+        Check that the outputs of 'f' and 'f_update' functions are consistent
+        by comparing the values logp differences computed by the both functions.
+        """
 
         test_pass = True
         for i in range(n_test):
@@ -86,8 +87,8 @@ class DHMCSampler(object):
             logp_prev, _, aux = self.f(theta)
             logp_curr, _, _ = self.f(theta_new)
             logp_diff, _ = self.f_update(theta, dtheta, index, aux)
-            both_inf = math.isinf(logp_diff) and \
-                       math.isinf(logp_curr - logp_prev)
+            both_inf = math.isinf(logp_diff) \
+                       and math.isinf(logp_curr - logp_prev)
             if not both_inf:
                 abs_err = abs(logp_diff - (logp_curr - logp_prev))
                 if logp_curr == logp_prev:
@@ -106,25 +107,30 @@ class DHMCSampler(object):
                 'the logp differences do not agree.',
                 RuntimeWarning
             )
-        return test_pass, theta, logp_curr - logp_prev, logp_diff
+        return test_pass, theta, logp_diff, logp_curr - logp_prev
 
     def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, aux, n_disc=0, M=None):
-        # Params
-        # ------
-        # f: function(theta, req_grad)
-        #   Returns the log probability and, if req_grad is True, its gradient.
-        #   The gradient for discrete parameters should be zero.
-        # f_update: function(theta, dtheta, index, aux)
-        #   Computes the difference in the log probability when theta[index] is
-        #   modified by dtheta. The input 'aux' is whatever the quantity saved from
-        #   the previous call to 'f' that can be recycled.
-        # M: column vector representing diagonal mass matrix
-        # n_disc: the number of discrete parameters. The parameters theta[:-n_disc] are assumed continuous.
+        """
+        One numerical integration step of the DHMC integrator.
+
+        Params
+        ------
+        f: function(theta, req_grad)
+          Returns the log probability and, if req_grad is True, its gradient.
+          The gradient for discrete parameters should be zero.
+        f_update: function(theta, dtheta, index, aux)
+          Computes the difference in the log probability when theta[index] is
+          modified by dtheta. The input 'aux' is whatever the quantity saved from
+          the previous call to 'f' or 'f_update' that can be recycled.
+        M: column vector
+          Represents the diagonal mass matrix
+        n_disc: int
+          Number of discrete parameters. The parameters theta[:-n_disc] are
+          assumed continuous.
+        """
 
         if M is None:
             M = np.ones(len(theta0))
-
-        # Flip the direction of p if necessary so that the rest of code can assume that dt > 0.
         theta = theta0.copy()
         p = p0.copy()
 
@@ -143,7 +149,8 @@ class DHMCSampler(object):
                 return theta, p, grad, logp, nfevals
             coord_order = len(theta) - n_disc + np.random.permutation(n_disc)
             for index in coord_order:
-                theta, p, logp, aux = self.update_coordwise(f_update, aux, index, theta, p, M, dt, logp)
+                theta, p, logp, aux \
+                    = self.update_coordwise(f_update, aux, index, theta, p, M, dt, logp)
 
             theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
 
@@ -168,19 +175,25 @@ class DHMCSampler(object):
             p[index] = - p[index]
         return theta, p, logp, aux
 
-    ## Proposal scheme: basically identical to the standard HMC except for the integrator and kinetic energy
     def HMC(self, epsilon, n_step, theta0, logp0, grad0, aux0):
+        """
+        Proposal scheme basically identical to the standard HMC. The code is
+        however written so that one can use any kinetic energy along with a
+        corresponding reversible and volume-preserving integrator.
+        """
 
         p = self.random_momentum()
         joint0 = - self.compute_hamiltonian(logp0, p)
 
         nfevals_total = 0
-        theta, p, grad, logp, aux, nfevals = self.integrator(epsilon, theta0, p, logp0, grad0, aux0)
+        theta, p, grad, logp, aux, nfevals \
+            = self.integrator(epsilon, theta0, p, logp0, grad0, aux0)
         nfevals_total += nfevals
         for i in range(1, n_step):
             if math.isinf(logp):
                 break
-            theta, p, grad, logp, aux, nfevals = self.integrator(epsilon, theta, p, logp, grad, aux)
+            theta, p, grad, logp, aux, nfevals \
+                = self.integrator(epsilon, theta, p, logp, grad, aux)
             nfevals_total += nfevals
 
         joint = - self.compute_hamiltonian(logp, p)
@@ -193,12 +206,17 @@ class DHMCSampler(object):
 
         return theta, logp, grad, aux, acceptprob, nfevals_total
 
-    # Integrator and kinetic energy functions for the proposal scheme.
+    # Integrator and kinetic energy functions for the proposal scheme. The
+    # class allows any reversible dynamics based samplers by changing the
+    # 'integrator', 'random_momentum', and 'compute_hamiltonian' functions.
     def integrator(self, dt, theta0, p0, logp, grad, aux):
-        return self.pwc_laplace_leapfrog(self.f, self.f_update, dt, theta0, p0, logp, grad, aux, self.n_disc, self.M)
+        return self.pwc_laplace_leapfrog(
+            self.f, self.f_update, dt, theta0, p0, logp, grad, aux, self.n_disc, self.M
+        )
 
     def random_momentum(self):
-        p_cont = np.sqrt(self.M[:-self.n_disc]) * np.random.normal(size = self.n_param - self.n_disc)
+        p_cont = np.sqrt(self.M[:-self.n_disc]) \
+            * np.random.normal(size = self.n_param - self.n_disc)
         p_disc = self.M[-self.n_disc:] * np.random.laplace(size=self.n_disc)
         return np.concatenate((p_cont, p_disc))
 
@@ -208,10 +226,11 @@ class DHMCSampler(object):
             + np.sum(np.abs(p[-self.n_disc:]) / self.M[-self.n_disc:])
 
     def run_sampler(self, theta0, dt_range, nstep_range, n_burnin, n_sample, seed=None, n_update=10):
+        """Run DHMC and return samples and some additional info."""
 
         np.random.seed(seed)
 
-        # Run NUTS
+        # Run HMC.
         theta = theta0
         n_per_update = math.ceil((n_burnin + n_sample) / n_update)
         nfevals_total = 0
@@ -224,7 +243,8 @@ class DHMCSampler(object):
         for i in range(n_sample + n_burnin):
             dt = np.random.uniform(dt_range[0], dt_range[1])
             nstep = np.random.randint(nstep_range[0], nstep_range[1] + 1)
-            theta, logp, grad, aux, accept_prob[i], nfevals = self.HMC(dt, nstep, theta, logp, grad, aux)
+            theta, logp, grad, aux, accept_prob[i], nfevals \
+                = self.HMC(dt, nstep, theta, logp, grad, aux)
             nfevals_total += nfevals
             samples[i, :] = theta
             logp_samples[i] = logp
@@ -234,6 +254,7 @@ class DHMCSampler(object):
         toc = time.process_time()
         time_elapsed = toc - tic
         nfevals_per_itr = nfevals_total / (n_sample + n_burnin)
-        print('Each iteration required {:.2f} likelihood evaluations on average.'.format(nfevals_per_itr))
+        print('Each iteration required {:.2f} likelihood evaluations on average.'
+              .format(nfevals_per_itr))
 
         return samples, logp_samples, accept_prob, nfevals_per_itr, time_elapsed
