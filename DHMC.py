@@ -109,9 +109,11 @@ class DHMCSampler(object):
             )
         return test_pass, theta, logp_diff, logp_curr - logp_prev
 
-    def pwc_laplace_leapfrog(self, f, f_update, dt, theta0, p0, logp, grad, aux, n_disc=0, M=None):
+    def gauss_laplace_leapfrog(
+            self, f, f_update, dt, theta0, p0, logp, grad, aux, n_disc=0, M=None):
         """
-        One numerical integration step of the DHMC integrator.
+        One numerical integration step of the DHMC integrator for a mixed
+        Gaussian and Laplace momentum.
 
         Params
         ------
@@ -210,7 +212,7 @@ class DHMCSampler(object):
     # class allows any reversible dynamics based samplers by changing the
     # 'integrator', 'random_momentum', and 'compute_hamiltonian' functions.
     def integrator(self, dt, theta0, p0, logp, grad, aux):
-        return self.pwc_laplace_leapfrog(
+        return self.gauss_laplace_leapfrog(
             self.f, self.f_update, dt, theta0, p0, logp, grad, aux, self.n_disc, self.M
         )
 
