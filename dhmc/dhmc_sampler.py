@@ -177,7 +177,7 @@ class DHMCSampler(object):
             p[index] = - p[index]
         return theta, p, logp, aux
 
-    def HMC(self, epsilon, n_step, theta0, logp0, grad0, aux0):
+    def hmc(self, epsilon, n_step, theta0, logp0, grad0, aux0):
         """
         Proposal scheme basically identical to the standard HMC. The code is
         however written so that one can use any kinetic energy along with a
@@ -246,7 +246,7 @@ class DHMCSampler(object):
             dt = np.random.uniform(dt_range[0], dt_range[1])
             nstep = np.random.randint(nstep_range[0], nstep_range[1] + 1)
             theta, logp, grad, aux, accept_prob[i], nfevals \
-                = self.HMC(dt, nstep, theta, logp, grad, aux)
+                = self.hmc(dt, nstep, theta, logp, grad, aux)
             nfevals_total += nfevals
             samples[i, :] = theta
             logp_samples[i] = logp
