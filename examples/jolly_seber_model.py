@@ -24,22 +24,17 @@ n_disc = n_param - n_cont
 # Hyper-parameters
 sigma_B = 500
 
-logit = lambda x: 1 / (1 + np.exp(-x))
-logodd = lambda x: np.log(x / (1 - x))
-
-def pack_param(p, phi, U_init, B):
+#
+def pack_param(p, phi, U):
     # Returns a properly transformed and concatenated parameter vector.
     theta = np.zeros(n_param)
-    theta[index["phi"]] = logodd(phi)
-    theta[index["p"]] = logodd(p)
-    U = np.zeros(len(p))
-    U[0] = U_init
-    for i in range(len(B)):
-        U[i + 1] = B[i] + phi[i] * (U[i] - u[i])
-    theta[index["U"]] = np.log(U) 
+    theta[index["phi"]] = np.log(phi / (1 - phi))
+    theta[index["p"]] = np.log(p / (1 - p))
+    theta[index["U"]] = np.log(U)
     return theta
 
 def unpack_param(theta):
+    logit = lambda x: 1 / (1 + np.exp(-x))
     if theta.ndim == 1:
         p = logit(theta[index["p"]])
         phi = logit(theta[index["phi"]])
