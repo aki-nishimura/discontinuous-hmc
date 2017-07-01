@@ -219,3 +219,51 @@ def f_update(theta, dtheta, j, aux):
             (U_next - phi * (U - u[i])) ** 2 / U_var / 2
     
     return logp_diff, None
+
+
+### Function to conditionally update the discrete parameters
+def update_disc(theta):
+    # Extract each parameter.
+
+    tilphi = theta[index["phi"]]
+    tilp = theta[index["p"]]
+    log_U = theta[index["U"]]
+    phi = 1 / (1 + np.exp(-tilphi))
+    p = 1 / (1 + np.exp(-tilp))
+    U = np.floor(np.exp(log_U)).astype('int64')
+
+    for i in np.random.permutation(len(U)):
+        U[i] = cond_update_U(phi, p, U, i)
+
+    theta[index["U"]] = np.log(U)
+    return theta
+
+def cond_update_U(phi, p, U, i):
+    # The possible values of U[i].
+    U_i = np.arange(u[i], n_max)
+
+    # Log-likelihood of the 1st capture.
+    logp = \
+        log_factorial[U_i] - log_factorial[U_i - u[i]] + U_i * np.log(1 - p[i])
+
+    # Contributions from prior. Take advantage of Markovian structure.
+    if i == 0:
+        logp += - np.log(U_i)
+    else:
+        U_prev_var = sigma_B ** 2 + \
+                     phi[i - 1] * (1 - phi[i - 1]) * (U - u)[i - 1]
+        logp += - np.log(U_prev_var) / 2 + \
+                - (U_i - phi[i - 1] * (
+                U[i - 1] - u[i - 1])) ** 2 / U_prev_var / 2
+
+    if i < len(U) - 1:
+        U_i_var = sigma_B ** 2 + \
+                  phi[i] * (1 - phi[i]) * (U_i - u[i])
+        logp += - np.log(U_i_var) / 2 + \
+                - (U[i + 1] - phi[i] * (U_i - u[i])) ** 2 / U_i_var / 2
+
+    # Multi-nomial sampling
+    prob = np.exp(logp - np.max(logp))
+    prob = prob / np.sum(prob)
+
+    return np.random.choice(U_i, size=1, p=prob)
