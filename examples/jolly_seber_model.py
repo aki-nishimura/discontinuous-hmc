@@ -1,6 +1,8 @@
 import numpy as np
 import math
 
+# Data (sufficient statistics) from the black-kneed capsid data in Seber (
+# 1982).
 n = np.array([54, 146, 169, 209, 220, 209, 250, 176, 172, 127, 123, 120, 142])
 R = np.array([54, 143, 164, 202, 214, 207, 243, 175, 169, 126, 120, 120])
 r = np.array([24, 80, 70, 71, 109, 101, 108, 99, 70, 58, 44, 35])
@@ -10,12 +12,13 @@ u = np.concatenate(([n[0]], n[1:] - m)).astype('int64')
 T = len(n)
 
 # Specify the indices of parameters.
-
-index_p = np.arange(T)
-index_phi = np.arange(T, 2 * T - 1)
-index_U = np.arange(2 * T - 1, 3 * T - 1)
+index = {
+    "p": np.arange(T),
+    "phi": np.arange(T, 2 * T - 1),
+    "U": np.arange(2 * T - 1, 3 * T - 1)
+}
 n_param = 3 * T - 1
-n_cont = len(index_phi) + len(index_p)
+n_cont = len(index["phi"]) + len(index["p"])
 n_disc = n_param - n_cont
 
 # Hyper-parameters
@@ -27,32 +30,32 @@ logodd = lambda x: np.log(x / (1 - x))
 def pack_param(p, phi, U_init, B):
     # Returns a properly transformed and concatenated parameter vector.
     theta = np.zeros(n_param)
-    theta[index_phi] = logodd(phi)
-    theta[index_p] = logodd(p)
+    theta[index["phi"]] = logodd(phi)
+    theta[index["p"]] = logodd(p)
     U = np.zeros(len(p))
     U[0] = U_init
     for i in range(len(B)):
         U[i + 1] = B[i] + phi[i] * (U[i] - u[i])
-    theta[index_U] = np.log(U) 
+    theta[index["U"]] = np.log(U) 
     return theta
 
 def unpack_param(theta):
     if theta.ndim == 1:
-        p = logit(theta[index_p])
-        phi = logit(theta[index_phi])
-        U = np.array(np.floor(np.exp(theta[index_U])), dtype='int64')
+        p = logit(theta[index["p"]])
+        phi = logit(theta[index["phi"]])
+        U = np.array(np.floor(np.exp(theta[index["U"]])), dtype='int64')
         M = np.zeros(U.shape, dtype='int64')
         M[1] = np.random.binomial(n[0], phi[:, 0])
-        for i in range(1, len(index_U) - 1):
+        for i in range(1, len(index["U"]) - 1):
             M[i + 1] = np.random.binomial(u[i] + M[:, i], phi[:, i])
         N = M + U
     else:
-        p = logit(theta[:, index_p])
-        phi = logit(theta[:, index_phi])
-        U = np.array(np.floor(np.exp(theta[:, index_U])), dtype='int64')
+        p = logit(theta[:, index["p"]])
+        phi = logit(theta[:, index["phi"]])
+        U = np.array(np.floor(np.exp(theta[:, index["U"]])), dtype='int64')
         M = np.zeros(U.shape, dtype='int64')
         M[:, 1] = np.random.binomial(n[0], phi[:, 0])
-        for i in range(1, len(index_U) - 1):
+        for i in range(1, len(index["U"]) - 1):
             M[:, i + 1] = np.random.binomial(u[i] + M[:, i], phi[:, i])
         N = M + U
     return p, phi, U, N
@@ -65,9 +68,9 @@ log_factorial = np.insert(log_factorial, 0, 0)
 def f(theta, req_grad=True):
     
     # Extract each parameter.
-    tilp = theta[index_p]
-    tilphi = theta[index_phi]
-    log_U = theta[index_U]
+    tilp = theta[index["p"]]
+    tilphi = theta[index["phi"]]
+    log_U = theta[index["U"]]
     U = np.floor(np.exp(log_U)).astype('int64')
     
     # Check for over-flow condition.
@@ -100,18 +103,18 @@ def f(theta, req_grad=True):
             np.sum(np.log(phi * (1 - phi))) + \
             np.sum(np.log(p * (1 - p)))
         dU_var_dphi = (U - u)[:-1] * (1 - 2 * phi)
-        grad[index_phi] += phi * (1 - phi) * (
+        grad[index["phi"]] += phi * (1 - phi) * (
             dU_var_dphi * (- 1 / 2 / U_var - (U[1:] - phi * (U - u)[:-1]) ** 2 / U_var ** 2 / 2) + \
             (U[1:] - phi * (U - u)[:-1]) * (U - u)[:-1] / U_var)    
-        grad[index_phi] += 1 - 2 * phi
-        grad[index_p] += 1 - 2 * p
+        grad[index["phi"]] += 1 - 2 * phi
+        grad[index["p"]] += 1 - 2 * p
 
         # Contributions from the likelihood of first captures.
         logp += np.sum(
             log_factorial[U] - log_factorial[U - u] + \
             u * tilp + U * np.log(1 - p) 
         )
-        grad[index_p] += u - U * p
+        grad[index["p"]] += u - U * p
 
         # Contributions from the likelihood of recaptures.
         chi_grad_p = np.zeros(T)
@@ -120,8 +123,8 @@ def f(theta, req_grad=True):
         chi_grad_phi[T - 2] += - p[T - 1]
         chi = 1 - phi[T - 2] * p[T - 1] 
         logp += (R[-1] - r[-1]) * np.log(chi)
-        grad[index_p] += p * (1 - p) * (R[-1] - r[-1]) / chi * chi_grad_p
-        grad[index_phi] += phi * (1 - phi) * (R[-1] - r[-1]) / chi * chi_grad_phi
+        grad[index["p"]] += p * (1 - p) * (R[-1] - r[-1]) / chi * chi_grad_p
+        grad[index["phi"]] += phi * (1 - phi) * (R[-1] - r[-1]) / chi * chi_grad_phi
         for i in range(2, T):
             # Compute chi_{T-i-1} and its gradient iteratively using
             # the value of chi_{T-i} and its gradient.
@@ -131,16 +134,16 @@ def f(theta, req_grad=True):
             chi_grad_phi[-i] += - 1 + (1 - p[-i + 1]) * chi
             chi = 1 - phi[-i] * (1 - (1 - p[-i + 1]) * chi)
             logp += (R[-i] - r[-i]) * np.log(chi)
-            grad[index_p] += p * (1 - p) * (R[-i] - r[-i]) / chi * chi_grad_p
-            grad[index_phi] += phi * (1 - phi) * (R[-i] - r[-i]) / chi * chi_grad_phi
+            grad[index["p"]] += p * (1 - p) * (R[-i] - r[-i]) / chi * chi_grad_p
+            grad[index["phi"]] += phi * (1 - phi) * (R[-i] - r[-i]) / chi * chi_grad_phi
 
         logp += np.sum(
             (z + m) * np.log(phi) + \
             z * np.log(1 - p[1:]) + \
             m * np.log(p[1:])
         ) # Assumes that z[0] = z_2, m[0] = m_2
-        grad[index_p[1:]] += - z * p[1:] + m * (1 - p[1:])
-        grad[index_phi] += (1 - phi) *(z + m)
+        grad[index["p"][1:]] += - z * p[1:] + m * (1 - p[1:])
+        grad[index["phi"]] += (1 - phi) *(z + m)
         
     else:
         
@@ -173,12 +176,13 @@ def f(theta, req_grad=True):
     
     return logp, grad, None
 
-def f_update(theta, dtheta, index, aux):
+def f_update(theta, dtheta, j, aux):
+    # j : index of the parameter to be updated.
     
-    i = index - index_U[0] # Convert to the capture occasion index.
-    p = 1 / (1 + math.exp(-theta[index_p[i]]))
-    U = math.floor(math.exp(theta[index]))
-    U_prop = math.floor(math.exp(theta[index] + dtheta))
+    i = j - index["U"][0] # Convert to the capture occasion index.
+    p = 1 / (1 + math.exp(-theta[index["p"][i]]))
+    U = math.floor(math.exp(theta[j]))
+    U_prop = math.floor(math.exp(theta[j] + dtheta))
     
     # Check for the boundary condition.
     if U_prop < u[i] or U_prop > n_max:
@@ -197,19 +201,19 @@ def f_update(theta, dtheta, index, aux):
     if i == 0:
         logp_diff += math.log(U / U_prop)
     else:
-        phi_prev = 1 / (1 + math.exp(-theta[index_phi[i - 1]]))
-        U_prev = math.floor(math.exp(theta[index_U[i - 1]]))
+        phi_prev = 1 / (1 + math.exp(-theta[index["phi"][i - 1]]))
+        U_prev = math.floor(math.exp(theta[index["U"][i - 1]]))
         U_prev_var = sigma_B ** 2 + \
             phi_prev * (1 - phi_prev) * (U_prev - u[i - 1])
         logp_diff += 1 / U_prev_var / 2 * (
             - (U_prop - phi_prev * (U_prev - u[i - 1])) ** 2 
             + (U - phi_prev * (U_prev - u[i - 1])) ** 2 
         )
-    if i < len(index_U) - 1:
-        phi = 1 / (1 + math.exp(-theta[index_phi[i]]))
+    if i < len(index["U"]) - 1:
+        phi = 1 / (1 + math.exp(-theta[index["phi"][i]]))
         U_var = sigma_B ** 2 + phi * (1 - phi) * (U - u[i])
         U_prop_var = sigma_B ** 2 + phi * (1 - phi) * (U_prop - u[i])
-        U_next = math.floor(math.exp(theta[index_U[i + 1]]))
+        U_next = math.floor(math.exp(theta[index["U"][i + 1]]))
         logp_diff += \
             - (U_next - phi * (U_prop - u[i])) ** 2 / U_prop_var / 2 + \
             (U_next - phi * (U - u[i])) ** 2 / U_var / 2
