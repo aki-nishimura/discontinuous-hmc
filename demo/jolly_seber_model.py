@@ -24,7 +24,6 @@ n_disc = n_param - n_cont
 # Hyper-parameters
 sigma_B = 500
 
-#
 def pack_param(p, phi, U):
     # Returns a properly transformed and concatenated parameter vector.
     theta = np.zeros(n_param)
