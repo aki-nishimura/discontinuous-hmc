@@ -136,7 +136,8 @@ class DHMCSampler(object):
         theta = theta0.copy()
         p = p0.copy()
 
-        nfevals = 0
+        n_feval = 0
+        n_fupdate = 0
         p[:-n_disc] = p[:-n_disc] + 0.5 * dt * grad[:-n_disc]
         if n_disc == 0:
             theta = theta + dt * p / M
@@ -148,20 +149,21 @@ class DHMCSampler(object):
 
             # Update discrete parameters.
             if math.isinf(logp):
-                return theta, p, grad, logp, nfevals
+                return theta, p, grad, logp, n_feval, n_fupdate
             coord_order = len(theta) - n_disc + np.random.permutation(n_disc)
             for index in coord_order:
                 theta, p, logp, aux \
                     = self.update_coordwise(f_update, aux, index, theta, p, M, dt, logp)
+                n_fupdate += 1
 
             theta[:-n_disc] = theta[:-n_disc] + dt / 2 * p[:-n_disc] / M[:-n_disc]
 
         if self.n_param != self.n_disc:
             logp, grad, aux = f(theta)
-            nfevals += 1
+            n_feval += 1
             p[:-n_disc] = p[:-n_disc] + 0.5 * dt * grad[:-n_disc]
 
-        return theta, p, grad, logp, aux, nfevals
+        return theta, p, grad, logp, aux, n_feval, n_fupdate
 
     def update_coordwise(self, f_update, aux, index, theta, p, M, dt, logp):
         p_sign = math.copysign(1.0, p[index])
@@ -187,16 +189,19 @@ class DHMCSampler(object):
         p = self.random_momentum()
         joint0 = - self.compute_hamiltonian(logp0, p)
 
-        nfevals_total = 0
-        theta, p, grad, logp, aux, nfevals \
+        n_feval = 0
+        n_fupdate = 0
+        theta, p, grad, logp, aux, n_feval_local, n_fupdate_local \
             = self.integrator(epsilon, theta0, p, logp0, grad0, aux0)
-        nfevals_total += nfevals
+        n_feval += n_feval_local
+        n_fupdate += n_fupdate_local
         for i in range(1, n_step):
             if math.isinf(logp):
                 break
-            theta, p, grad, logp, aux, nfevals \
+            theta, p, grad, logp, aux, n_feval_local, n_fupdate_local \
                 = self.integrator(epsilon, theta, p, logp, grad, aux)
-            nfevals_total += nfevals
+            n_feval += n_feval_local
+            n_fupdate += n_fupdate_local
 
         joint = - self.compute_hamiltonian(logp, p)
         acceptprob = min(1, np.exp(joint - joint0))
@@ -206,7 +211,7 @@ class DHMCSampler(object):
             logp = logp0
             grad = grad0
 
-        return theta, logp, grad, aux, acceptprob, nfevals_total
+        return theta, logp, grad, aux, acceptprob, n_feval, n_fupdate
 
     # Integrator and kinetic energy functions for the proposal scheme. The
     # class allows any reversible dynamics based samplers by changing the
@@ -235,7 +240,8 @@ class DHMCSampler(object):
         # Run HMC.
         theta = theta0
         n_per_update = math.ceil((n_burnin + n_sample) / n_update)
-        nfevals_total = 0
+        n_feval = 0
+        n_fupdate = 0
         samples = np.zeros((n_sample + n_burnin, len(theta)))
         logp_samples = np.zeros(n_sample + n_burnin)
         accept_prob = np.zeros(n_sample + n_burnin)
@@ -245,9 +251,10 @@ class DHMCSampler(object):
         for i in range(n_sample + n_burnin):
             dt = np.random.uniform(dt_range[0], dt_range[1])
             nstep = np.random.randint(nstep_range[0], nstep_range[1] + 1)
-            theta, logp, grad, aux, accept_prob[i], nfevals \
+            theta, logp, grad, aux, accept_prob[i], n_feval_local, n_fupdate_local \
                 = self.hmc(dt, nstep, theta, logp, grad, aux)
-            nfevals_total += nfevals
+            n_feval += n_feval_local
+            n_fupdate += n_fupdate_local
             samples[i, :] = theta
             logp_samples[i] = logp
             if (i + 1) % n_per_update == 0:
@@ -255,8 +262,10 @@ class DHMCSampler(object):
 
         toc = time.process_time()
         time_elapsed = toc - tic
-        nfevals_per_itr = nfevals_total / (n_sample + n_burnin)
-        print('Each iteration required {:.2f} likelihood evaluations on average.'
-              .format(nfevals_per_itr))
+        n_feval_per_itr = n_feval / (n_sample + n_burnin)
+        n_fupdate_per_itr = n_fupdate / (n_sample + n_burnin)
+        print('Each iteration of DHMC on average required '
+            + '{:.2f} conditional density evaluations per discontinuous parameter '.format(n_fupdate_per_itr / self.n_disc)
+            + 'and {:.2f} full density evaluations.'.format(n_feval_per_itr))
 
-        return samples, logp_samples, accept_prob, nfevals_per_itr, time_elapsed
+        return samples, logp_samples, accept_prob, n_feval_per_itr, time_elapsed
