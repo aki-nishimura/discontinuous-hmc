@@ -28,7 +28,7 @@ def coda_ess(samples, axis=0, normed=False, n_digit=18):
 
     # Write the data to a text file, read into the R script, and output
     # the result back into a text file.
-    os.system(" ".join(["Rscript compute_ess.R", saveto, loadfrom]))
+    os.system(" ".join(["Rscript compute_coda_ess.R", saveto, loadfrom]))
     ess = np.loadtxt(loadfrom, delimiter=',').copy()
     if normed:
         ess = ess / samples.shape[axis]
