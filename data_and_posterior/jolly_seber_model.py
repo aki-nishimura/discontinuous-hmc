@@ -39,9 +39,9 @@ def unpack_param(theta):
         phi = logit(theta[index["phi"]])
         U = np.array(np.floor(np.exp(theta[index["U"]])), dtype='int64')
         M = np.zeros(U.shape, dtype='int64')
-        M[1] = np.random.binomial(n[0], phi[:, 0])
+        M[1] = np.random.binomial(n[0], phi[0])
         for i in range(1, len(index["U"]) - 1):
-            M[i + 1] = np.random.binomial(u[i] + M[:, i], phi[:, i])
+            M[i + 1] = np.random.binomial(u[i] + M[i], phi[i])
         N = M + U
     else:
         p = logit(theta[:, index["p"]])
