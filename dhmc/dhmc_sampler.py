@@ -1,6 +1,7 @@
 import numpy as np
 import math
 import time
+from copy import deepcopy
 import warnings
 
 class DHMCSampler(object):
@@ -186,8 +187,9 @@ class DHMCSampler(object):
         joint0 = - self.compute_hamiltonian(logp0, p)
 
         pathlen = 0
+        theta, grad, aux = theta0.copy(), grad0.copy(), deepcopy(aux0)
         theta, p, grad, logp, aux \
-            = self.integrator(epsilon, theta0, p, logp0, grad0, aux0)
+            = self.integrator(epsilon, theta, p, logp0, grad, aux)
         pathlen += 1
         for i in range(1, n_step):
             if math.isinf(logp):
@@ -196,14 +198,18 @@ class DHMCSampler(object):
                 = self.integrator(epsilon, theta, p, logp, grad, aux)
             pathlen += 1
 
-        joint = - self.compute_hamiltonian(logp, p)
-        acceptprob = min(1, np.exp(joint - joint0))
+        if math.isinf(logp):
+            acceptprob = 0.
+        else:
+            joint = - self.compute_hamiltonian(logp, p)
+            acceptprob = min(1, np.exp(joint - joint0))
 
         if acceptprob < np.random.rand():
             theta = theta0
             logp = logp0
             grad = grad0
-
+            aux = aux0
+            
         return theta, logp, grad, aux, acceptprob, pathlen
 
     # Integrator and kinetic energy functions for the proposal scheme. The
