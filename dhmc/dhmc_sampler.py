@@ -259,7 +259,5 @@ class DHMCSampler(object):
 
         toc = time.process_time()
         time_elapsed = toc - tic
-        print(('The average path length of each DHMC iteration was '
-               '{:.2f}.'.format(pathlen_ave)))
 
         return samples, logp_samples, accept_prob, pathlen_ave, time_elapsed
