@@ -147,7 +147,7 @@ class DHMCSampler(object):
 
             # Update discrete parameters.
             if math.isinf(logp):
-                return theta, p, grad, logp, n_feval, n_fupdate
+                return theta, p, grad, logp, aux
             coord_order = len(theta) - n_disc + np.random.permutation(n_disc)
             for index in coord_order:
                 theta, p, logp, aux \
